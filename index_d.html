@@ -1,0 +1,1483 @@
+<html>
+<head>
+<link rel="stylesheet" type="text/css" href="resources/style.css">
+
+<script src="resources/three.js"></script>
+<script src="resources/jquery.js"></script>
+
+<script src="resources/shaders/CopyShader.js"></script>
+<script src="resources/shaders/DotScreenShader.js"></script>
+<script src="resources/shaders/RGBShiftShader.js"></script>
+<script src="resources/shaders/FilmShader.js"></script>
+<script src="resources/shaders/VignetteShader.js"></script>
+<script src="resources/shaders/ConvolutionShader.js"></script>
+<script src="resources/shaders/FocusShader.js"></script>
+
+<script src="resources/postprocessing/EffectComposer.js"></script>
+<script src="resources/postprocessing/RenderPass.js"></script>
+<script src="resources/postprocessing/MaskPass.js"></script>
+<script src="resources/postprocessing/ShaderPass.js"></script>
+<script src="resources/postprocessing/FilmPass.js"></script>
+<script src="resources/postprocessing/TexturePass.js"></script>
+<script src="resources/postprocessing/BloomPass.js"></script>
+<!--<script src="resources/improvedNoise.js"></script>-->
+<!--<script src="/socket.io/socket.io.js"></script>-->
+
+<script>
+/*var socket = io();
+
+var posX = $(window).width()/2;
+var posY = $(window).height()/2;
+
+$(window).resize(function(){
+  posX = $(window).width()/2;
+  posY = $(window).height()/2;
+});
+
+var posXemit = 0;
+var posYemit = 0;
+var posXYemit = 0;
+
+$(document).on("mousemove", function(event){
+  posX = event.pageX;
+  posY = event.pageY;
+  posXemit = (posX*100)/$(window).width();
+  posYemit = (posY*100)/$(window).height();
+  posXYemit = posXemit + "," + posYemit;
+  socket.emit('posXY', posXYemit);
+  return false;
+});
+
+var rawPos;
+
+socket.on('posXY', function(msg){
+  rawPos = msg.split(",");
+  posX = ($(window).width()/100)*rawPos[0];
+  posY = ($(window).height()/100)*rawPos[1];
+});*/
+</script>
+
+<title>Le cube</title>
+</head>
+
+<body>
+<script>
+//-----------------------------------------------init    
+var numFrame = 0;
+var scene = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.z = 5;
+
+var renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor( 0xFCF7E7, 1);
+renderer.shadowMapEnabled = true;
+renderer.shadowMapType = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+//document.body.addEventListener( 'mousemove', onMouseMove, false );
+document.body.addEventListener( 'mouseup', onMouseClick, false );
+document.body.addEventListener( 'mousemove', onMouseMove, false );
+var clock = new THREE.Clock();
+scene.fog = new THREE.FogExp2( 0xFCF7E7, 0.0325 );
+//-----------------------------------------------init
+
+// ---------------------------------------------- esfera
+var sphereG = new THREE.OctahedronGeometry(2, 4);
+
+var material = new THREE.MeshLambertMaterial( { color: 0xdddddd, shading: THREE.FlatShading, vertexColors: THREE.FaceColors, transparent: true, opacity: 1.0} );
+    //material.depthTest = false;
+    //material.depthWrite = false;
+
+var pautaRSphere =  (Math.random() + 0.1) * 0.7;
+var pautaGSphere =  (Math.random() + 0.1) * 0.7;
+var pautaBSphere =  (Math.random() + 0.1) * 0.7;
+    
+
+
+for ( var i = 0; i < sphereG.faces.length; i++ ){
+		face  = sphereG.faces[ i ];
+		var r = pautaRSphere + Math.random()*0.2;
+		var g = pautaGSphere + Math.random()*0.2;
+		var b = pautaBSphere + Math.random()*0.2;
+		face.color.setRGB(r, g, b);
+	}
+var sphere = new THREE.Mesh(sphereG, material);
+scene.add(sphere);
+
+var limiteSphere = [];
+
+for (var i = 0; i < sphere.geometry.vertices.length; i++){
+sphere.geometry.vertices[ i ].x += Math.random()*.1;
+sphere.geometry.vertices[ i ].y += Math.random()*.1;
+sphere.geometry.vertices[ i ].z += Math.random()*.1;
+
+limiteSphere[ i ] = Math.abs(sphere.geometry.vertices[ i ].x * 1.3); 
+}
+    
+sphere.geometry.__dirtyVertices = true;
+sphere.geometry.__dirtyNormals = true;
+sphere.geometry.verticesNeedUpdate = true;
+    
+
+// ---------------------------------------------- esfera
+//-------------------------------------------------luces
+var luzSuperior = new THREE.DirectionalLight(0xffffff, 0.4);
+luzSuperior.position.set(0, 150, -15 );
+//luzSuperior.castShadow = true;
+//luzSuperior.shadowDarkness = 0.9;
+scene.add( luzSuperior );
+
+var luzFrontal = new THREE.DirectionalLight(0xffffff, 0.7);
+luzFrontal.position.set(0, 0, 150 );
+scene.add( luzFrontal );
+//-------------------------------------------------luces
+
+//-----------------------------------------------post
+var renderPass = new THREE.RenderPass( scene, camera );
+
+var effectFilm = new THREE.FilmPass( 0.15, 0.05, 2048, false );
+    
+var effectFocus = new THREE.ShaderPass(THREE.FocusShader);
+effectFocus.uniforms["screenWidth"].value = window.innerWidth;
+effectFocus.uniforms["screenHeight"].value = window.innerHeight;
+effectFocus.uniforms["sampleDistance"].value = 0.3;
+effectFocus.uniforms["waveFactor"].value = 0.00000;
+
+var vignette = new THREE.ShaderPass(THREE.VignetteShader);
+vignette.uniforms[ 'offset' ].value = 0.95;
+vignette.uniforms[ 'darkness' ].value = 0.7;
+vignette.renderToScreen = true;//el ˙ltimo rendertoScreen es el que manda a todos los dem·s efectos
+
+
+
+var composer = new THREE.EffectComposer( renderer );
+composer.addPass( renderPass );
+composer.addPass( effectFilm );
+composer.addPass( effectFocus );
+composer.addPass( vignette );
+
+//-----------------------------------------------post
+function update(){
+	//sphere.rotation.y += 0.002;
+    //sphere.rotation.x += 0.002;
+}
+
+function draw(){//aqui es la animacion
+var delta = clock.getDelta();
+  requestAnimationFrame( draw );
+  update();
+  //renderer.render( scene, camera);
+ renderer.autoClear = false; 
+ renderer.clear();
+ composer.render(delta);
+}
+draw();
+    
+    var mouseX = 1;
+    var mouseY = 1;
+    var toggleClick1 = true;
+    var contadorAnillos = 0;
+    var anillos = [];
+    
+function onMouseMove( event ) {
+				 mouseX = ( event.clientX / window.innerWidth ) * 2 - 1;
+				 mouseY = -( event.clientY / window.innerHeight ) * 2 + 1;
+			}
+
+function onMouseClick( event ){
+    
+     mouseX = ( event.clientX / window.innerWidth ) * 2 - 1;
+     mouseY = -( event.clientY / window.innerHeight ) * 2 + 1;
+    
+    if(toggleClick1 && contadorAnillos < 10){//condicional para primera sesión interactiva
+
+				var vector = new THREE.Vector3( mouseX, mouseY, camera.near );
+				// Convert the [-1, 1] screen coordinate into a world coordinate on the near plane
+				vector.unproject( camera );
+
+				var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+
+				// See if the ray from the camera into the world hits one of our meshes
+				var intersects = raycaster.intersectObject( sphere );
+
+				// Toggle rotation bool for meshes that we clicked
+				if ( intersects.length > 0 ) {
+					var selectedFace = intersects[0].faceIndex;
+					var face = sphere.geometry.faces[selectedFace];
+					//face.color.setRGB( 0.9, 0.0, 0.0);
+					//sphere.geometry.colorsNeedUpdate = true;
+					animaFace( face, selectedFace );
+                    agregaAnillo( face );
+                }
+    }//if toggleClick //condicional para primera sesión interactiva
+}
+// ----------------------------------------------------------------------animacion de giro de esfera
+var boolAnimaEsfera = true;    
+
+function giroEsfera(){
+    var centroX = 0;
+    var centroY = 0;
+    var distanciaX, distanciaY;
+    var inerciaX = 0.02;
+    var inerciaY = 0.02;
+    var damper = 1;
+    var primerLoop = 0;
+    var colorCara = 0;
+    var idCara = 0;
+    
+    var rOrig = [];
+    var gOrig = [];
+    var bOrig = [];
+    
+for(var i = 0; i < sphere.geometry.faces.length; i++){
+        rOrig[ i ] = sphere.geometry.faces[ i ].color.r;
+        gOrig[ i ] = sphere.geometry.faces[ i ].color.g;
+        bOrig[ i ] = sphere.geometry.faces[ i ].color.b;
+    }
+    rOrig = rOrig.slice();
+    gOrig = gOrig.slice();
+    bOrig = bOrig.slice();
+    
+
+function animEsfera(){
+
+if( boolAnimaEsfera ){
+    
+distanciaX = centroX - mouseX;
+distanciaY = centroY - mouseY;
+
+var vector = new THREE.Vector3( mouseX, mouseY, camera.near );
+    
+				vector.unproject( camera );
+
+				var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+
+				var intersects = raycaster.intersectObject( sphere );
+
+				if ( intersects.length > 0 ) {
+                    damper = 1;
+                    rotateAroundWorldAxis( sphere, new THREE.Vector3(1,0,0), 0.05 * (distanciaY * -1));
+                    rotateAroundWorldAxis( sphere, new THREE.Vector3(0,1,0), 0.08 * (distanciaX));
+                    inerciaY = distanciaY;
+                    inerciaX = distanciaX;
+                    
+                    var selectedFace = intersects[0].faceIndex;
+                    
+                    if(primerLoop == 0){
+                        colorCara = new THREE.Color( rOrig[ selectedFace ], gOrig[ selectedFace ], bOrig[ selectedFace ] );
+                        idCara = selectedFace;
+                        //console.log(colorCara);
+                        var face = sphere.geometry.faces[selectedFace];
+                    //console.log(face.color);
+                    face.color.setRGB( rOrig[ selectedFace ] + 0.3, gOrig[ selectedFace ] + 0.3, bOrig[ selectedFace ] + 0.3 );
+					sphere.geometry.colorsNeedUpdate = true;
+                        primerLoop++;
+                    }
+                    
+                    if(idCara != selectedFace){
+                        //sphere.geometry.faces[idCara].color = coloresOrig[idCara];
+                        //sphere.geometry.faces[idCara].color = colorCara;
+                        //sphere.geometry.colorsNeedUpdate = true;
+                        //console.log(coloresOrig[selectedFace]);
+                        fadeoutCara( sphere.geometry.faces[idCara], colorCara );
+                        primerLoop = 0;
+                    }
+                    
+				}
+                else{
+                   rotateAroundWorldAxis( sphere, new THREE.Vector3(1,0,0), 0.05 * ((inerciaY * -1) / damper));
+                    rotateAroundWorldAxis( sphere, new THREE.Vector3(0,1,0), 0.08 * ((inerciaX) / damper)); 
+                    
+                    var totalInercias = Math.abs(inerciaX) + Math.abs(inerciaY);
+                    if(totalInercias > 0.04 && damper < 20){
+                    damper += ((damper*damper)*0.01);
+                    }
+                }
+    requestAnimationFrame( animEsfera );
+    }// if boolAnimEsfera
+    else{
+        rotateAroundWorldAxis( sphere, new THREE.Vector3(0,0,1), 0.005 );
+        requestAnimationFrame( animEsfera );
+    }
+}//animEsfera
+    animEsfera();
+}
+giroEsfera();
+// ----------------------------------------------------------------------animacion de giro de esfera
+// ----------------------------------------------------------------------fadeout de glow de cara
+function fadeoutCara( face, color ){
+    
+        var diffR = Math.abs( face.color.r - color.r );
+        var diffG = Math.abs( face.color.g - color.g );
+        var diffB = Math.abs( face.color.b - color.b );
+    
+    function fadeoutAnimaCara(){
+        
+        diffR = Math.abs( face.color.r - color.r );
+        diffG = Math.abs( face.color.g - color.g );
+        diffB = Math.abs( face.color.b - color.b );
+        
+        if( diffR > 0.01 || diffG > 0.01 || diffB > 0.01 ){
+            if(boolAnimaEsfera){ 
+            
+            if( face.color.r < color.r ){
+                face.color.r += 0.015;
+            }
+            if( face.color.r > color.r ){
+                face.color.r -= 0.015;
+            }
+            
+            if( face.color.g < color.g ){
+                face.color.g += 0.015;
+            }
+            if( face.color.g > color.g ){
+                face.color.g -= 0.015;
+            }
+            
+            if( face.color.b < color.b ){
+                face.color.b += 0.015;
+            }
+            if( face.color.b > color.b ){
+                face.color.b -= 0.015;
+            }
+            sphere.geometry.colorsNeedUpdate = true;
+            requestAnimationFrame( fadeoutAnimaCara );
+            }//if boolAnimaEsfera
+        }
+    }
+    fadeoutAnimaCara();
+}
+// ----------------------------------------------------------------------fadeout de glow de cara
+// ---------------------------------------------------------funcion para animar caras de la esfera
+function animaFace( face ){
+	var faceVertices = [ face.a, face.b, face.c];
+    var limiteA = limiteSphere[face.a] + Math.random()/100;
+    var limiteB = limiteSphere[face.b] + Math.random()/100;
+    var limiteC = limiteSphere[face.c] + Math.random()/100;
+    
+	function repite(){
+		if(Math.abs(sphere.geometry.vertices[face.a].x) < limiteA && Math.abs(sphere.geometry.vertices[face.b].x) < limiteB && Math.abs(sphere.geometry.vertices[face.c].x) < limiteC){
+			for(var i = 0; i < 3; i++){
+					sphere.geometry.vertices[faceVertices[i]].x += (sphere.geometry.vertices[faceVertices[i]].x * 0.005);
+					sphere.geometry.vertices[faceVertices[i]].y += (sphere.geometry.vertices[faceVertices[i]].y * 0.005);
+					sphere.geometry.vertices[faceVertices[i]].z += (sphere.geometry.vertices[faceVertices[i]].z * 0.005);
+					}
+			face.color.r += 0.006;
+			face.color.g += 0.006;
+			face.color.b += 0.006;
+            
+            sphere.geometry.colorsNeedUpdate = true;
+			sphere.geometry.verticesNeedUpdate = true;
+            toggleClick1 = false;
+            
+			requestAnimationFrame( repite );
+		}//if en repite
+        else{
+            toggleClick1 = true;
+        }
+	}//funcion repite()
+	repite();
+}//funcion animaFace()
+// ---------------------------------------------------------funcion para animar caras de la esfera
+// ---------------------------------------------------------funcion para animacion de circulos
+    
+    var grupoAnillos = [];
+    
+    function agregaAnillo( face ){
+        var limiteAAnillo = limiteSphere[face.a];
+        var limiteBAnillo = limiteSphere[face.b];
+        var limiteCAnillo = limiteSphere[face.c];
+        
+        if(Math.abs(sphere.geometry.vertices[face.a].x) < limiteAAnillo && Math.abs(sphere.geometry.vertices[face.b].x) < limiteBAnillo && Math.abs(sphere.geometry.vertices[face.c].x) < limiteCAnillo){
+                        
+                        var curve = new THREE.EllipseCurve(0,  0, (contadorAnillos * 0.2) + 2.7, (contadorAnillos * 0.2) + 2.7, 0, Math.PI * 2, false);
+                        var path = new THREE.Path( curve.getPoints( 64 ) );
+                        var geometry = path.createPointsGeometry( 64 );
+        
+                        for( var i = 0; i < geometry.vertices.length; i++ ){
+                            geometry.colors[ i ] = new THREE.Color(0xFCF7E7);
+                        }
+        
+                        var material = new THREE.LineBasicMaterial( { vertexColors: THREE.VertexColors } );
+                        var ellipse = new THREE.Line( geometry, material );
+                        var verticesAnillo = geometry.colors.length;
+                        scene.add(ellipse);
+                        ellipse.rotation.z = Math.random()*10;
+                        grupoAnillos.push(ellipse);
+        
+                        function animaAnillo(){
+                            if(verticesAnillo > -1){
+                                geometry.colors[ verticesAnillo ] = new THREE.Color(0x000000);
+                                geometry.colorsNeedUpdate = true;
+                                verticesAnillo--;
+                            }
+            
+                            if(verticesAnillo > -1){
+                                requestAnimationFrame( animaAnillo );
+                            }
+            
+                            else{
+				                if(contadorAnillos == 10 && boolAnimaEsfera){
+                                    boolAnimaEsfera = false;
+					               	mueveCamara(0, -6, 1, 0, 0, 0, 5, rotaAnillos(grupoAnillos)); // en esta movida x = x, y = z, z = y anillos son 10
+                                    desaturaEsfera();
+                                    mueveLuz(luzFrontal, 0, -150, 0, 5);
+                                    mueveLuz(luzSuperior, 0, 15, 150, 5);
+				                }
+                            }
+                        }// funcion animaAnillo
+        
+                        animaAnillo();
+                        if( contadorAnillos < 10 ){
+                        mueveCamara(0, 0, camera.position.z + (1 * 0.3), 0, 0, 0, 0.5);
+                        }
+                        contadorAnillos++;
+                    }
+        }
+// ---------------------------------------------------------función para animacion de circulos
+// ---------------------------------------------------------función para desaturacion de esfera
+    function desaturaEsfera(){
+        
+        var tonosGrises = [];
+        var metasColorCaras = 0;
+        var boolDesatura = true;
+        
+        for( var i = 0; i < sphere.geometry.faces.length; i++ ){
+            var tonoCara = ( sphere.geometry.faces[i].color.g + sphere.geometry.faces[i].color.b + sphere.geometry.faces[i].color.r ) / 3;
+            tonosGrises.push(tonoCara);
+        }
+        
+        function animaDesatura(){
+            for( var i = 0; i < sphere.geometry.faces.length; i++ ){
+            var diffR = Math.abs(tonosGrises[i] - sphere.geometry.faces[i].color.r);
+            var diffG = Math.abs(tonosGrises[i] - sphere.geometry.faces[i].color.g);
+            var diffB = Math.abs(tonosGrises[i] - sphere.geometry.faces[i].color.b);
+            
+                if( diffR > 0.0001 || diffG > 0.0001 || diffB > 0.0001){
+                    
+                    if( sphere.geometry.faces[i].color.r < tonosGrises[i] ){
+                        sphere.geometry.faces[i].color.r += 0.004;
+                    }
+                    if( sphere.geometry.faces[i].color.r > tonosGrises[i] ){
+                        sphere.geometry.faces[i].color.r -= 0.004;
+                    }
+                    if( sphere.geometry.faces[i].color.g < tonosGrises[i] ){
+                        sphere.geometry.faces[i].color.g += 0.004;
+                    }
+                    if( sphere.geometry.faces[i].color.g > tonosGrises[i] ){
+                        sphere.geometry.faces[i].color.g -= 0.004;
+                    }
+                    if( sphere.geometry.faces[i].color.b < tonosGrises[i] ){
+                        sphere.geometry.faces[i].color.b += 0.004;
+                    }
+                    if( sphere.geometry.faces[i].color.b > tonosGrises[i] ){
+                        sphere.geometry.faces[i].color.b -= 0.004;
+                    }
+                    
+                } // if diff
+            } //for
+            metasColorCaras++;
+            sphere.geometry.colorsNeedUpdate = true;
+            if( metasColorCaras < 120 ){
+               requestAnimationFrame( animaDesatura ); 
+            }
+        }
+        animaDesatura();
+    }
+// ---------------------------------------------------------función para desaturación de esfera
+// ---------------------------------------------------------funcion para rotacion de anillos
+    function rotaAnillos(anillos){
+        
+        var contador = 0;
+        
+        var randX = [];
+        var randY = [];
+        var randZ = [];
+        
+        for(var i = 0; i < anillos.length; i++){
+            randX[i] = Math.random() * 0.0000;
+            randY[i] = Math.random() * 0.0000;
+            randZ[i] = Math.random() * 0.0000;
+        }
+        
+        function animaAnillos(){
+            //alert(Math.abs(Math.round((anillos[0].rotation.x % anillos[1].rotation.x)*100)/100));
+        if(contador < 60){
+            for( var i = 0; i < anillos.length; i++){
+                anillos[i].rotation.x += randX[i];
+                anillos[i].rotation.y += randY[i];
+                anillos[i].rotation.z += randZ[i];
+                }
+            requestAnimationFrame( animaAnillos );
+            contador ++;
+            }//if
+            else{
+                planetas();
+            }
+    }//animaAnilllos
+        animaAnillos();
+        
+    }//rotaAnillos
+// ---------------------------------------------------------funcion para rotacion de anillos
+// ---------------------------------------------------------funcion para planetas
+    
+    var pivotes = [];
+    var contadorCerosEnOrbitas = 0;
+    
+    function planetas(){
+        
+        var material = new THREE.MeshBasicMaterial({ color: 0xFF0000, shading: THREE.FlatShading, blending: THREE.MultiplyBlending, transparent: true, opacity: 0.0 });
+        var circleGeometry = new THREE.CircleGeometry( 0.001, 32 );				
+        var circle = new THREE.Mesh( circleGeometry, material );
+        circle.name = "circuloCentral";
+        scene.add( circle );
+        circle.rotation.x = Math.PI / 2;
+        circle.position.y = -3;
+        circle.position.z = 0.55;
+        
+        //document.body.addEventListener( 'mousemove', raycastPlanetitas, false );
+        
+        for ( var i = 0; i < grupoAnillos.length; i++){
+            pivotes.push( new THREE.Object3D());
+            scene.add(pivotes[i]);
+            
+            var planetitaG = new THREE.SphereGeometry(0.10,4,3);
+            var tono = 0.3;
+            var colorPlanetita = new THREE.Color( tono, tono, tono );
+            var material = new THREE.MeshLambertMaterial({ color: colorPlanetita, shading: THREE.FlatShading, opacity: 0.0, transparent: true });
+            var planetita = new THREE.Mesh( planetitaG , material );
+            planetita.position.x = (i * 0.2) + 2.7;
+            pivotes[i].add(planetita);
+            
+            pivotes[i].rotation.x = grupoAnillos[i].rotation.x;
+            pivotes[i].rotation.y = grupoAnillos[i].rotation.y;
+            pivotes[i].rotation.z = grupoAnillos[i].rotation.z;
+        }
+        
+        var booUnLlamadoAReduce = true;
+        
+        function animaOrbitas (){
+            if( contadorCerosEnOrbitas < grupoAnillos.length ){
+            for(var i = 0; i < grupoAnillos.length; i++){
+
+                pivotes[i].rotation.z += (0.02 - (i/600));
+                
+                if( pivotes[i].children[0].material.opacity < 1.0 ){
+                pivotes[i].children[0].material.opacity += 0.005;
+                }
+                
+                pivotes[i].children[0].rotation.y += 0.01;
+                pivotes[i].children[0].rotation.z += 0.01;
+                
+            }
+        raycastPlanetitas();
+        requestAnimationFrame( animaOrbitas ); 
+            } //if contadorCerosEnOrbitas < grupoAnillos.length
+        }//animaOrbitas
+        animaOrbitas();
+    }
+    
+// ---------------------------------------------------------funcion para planetas
+// ---------------------------------------------------------funcion raycast para planetas    
+    function raycastPlanetitas(){
+        
+        var vector = new THREE.Vector3( mouseX, mouseY, camera.near );
+         vector.unproject( camera );
+         var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+        
+         for( var i = 0; i < grupoAnillos.length; i++){
+         var intersects = raycaster.intersectObject( pivotes[i].children[0] );
+             
+         pivotes[i].updateMatrixWorld();
+         var vector = new THREE.Vector3();
+         vector.setFromMatrixPosition( pivotes[i].children[0].matrixWorld );
+             
+                if ( intersects.length > 0 && vector.y < 2.0 ) {  
+                    orbitasAlCentro(pivotes[i].children[0], grupoAnillos[i], i, scene.getObjectByName( "circuloCentral" ), pivotes[i]);
+                }
+            }
+        
+    }
+// ---------------------------------------------------------funcion raycast para planetas   
+// ---------------------------------------------------------funcion para reducir orbitas
+ var idsPlanetasActivados = [];
+ function orbitasAlCentro( planeta, orbita, id, circle, pivote ){
+     var boolReduce = true;
+     for( var i = 0; i < idsPlanetasActivados.length; i++ ){
+         if( id == idsPlanetasActivados[i] ){
+             boolReduce = false;
+         }
+     }
+     
+     idsPlanetasActivados.push(id);
+     
+     if(boolReduce){
+     scene.remove(orbita);
+     circle.material.opacity = 1.0;
+     function reduceOrbita(){
+            if(planeta.position.x > 0){
+                planeta.position.x -= 0.02;
+                sphere.scale.x -= 0.0005;
+                sphere.scale.y -= 0.0005;
+                sphere.scale.z -= 0.0005;
+                circle.scale.x += 0.15;
+                circle.scale.y += 0.15;
+                
+                if(planeta.material.color.r < 1.0){
+                planeta.material.color.r += 0.01;
+                planeta.material.color.g += 0.01;
+                planeta.material.color.b += 0.01;
+               // planeta.material.color.setRGB( 0.9, 0.9, 0.9 );
+                planeta.geometry.colorsNeedUpdate = true;
+                }
+                
+                requestAnimationFrame( reduceOrbita );  
+            }
+         else{
+             
+            contadorCerosEnOrbitas++; 
+            scene.remove(pivote);
+            if( contadorCerosEnOrbitas == grupoAnillos.length ){
+                document.body.removeEventListener( 'mousemove', raycastPlanetitas, false );
+                solNaciente(circle);
+            }
+             
+         }
+        }//reduceOrbita
+     reduceOrbita();
+     }
+ }
+// ---------------------------------------------------------funcion para reducir orbitas
+// ---------------------------------------------------------funcion para solNaciente
+var boolAnimaSolNaciente = false;
+var circuloSolNaciente;
+    
+var limitadorSolNaciente = true;
+    
+function solNaciente( circle ){
+    document.body.addEventListener( 'mouseup', clickSolNaciente, false );
+    var circulo = circle;
+    circuloSolNaciente = circulo;
+    
+    function clickSolNaciente( event ){
+        mouseX = ( event.clientX / window.innerWidth ) * 2 - 1;
+        mouseY = -( event.clientY / window.innerHeight ) * 2 + 1;
+        var vector = new THREE.Vector3( mouseX, mouseY, camera.near );
+        vector.unproject( camera );
+        var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+        var intersects = raycaster.intersectObject( circulo );
+        
+        if( intersects.length > 0 && limitadorSolNaciente){
+            limitadorSolNaciente = false;
+            animaSolNaciente();
+        }
+    }
+    
+    var diffR;
+    var diffG;
+    var diffB;
+    
+    function animaSolNaciente(){
+        
+        diffR = Math.abs( circulo.material.color.r - 0.20 );
+        diffG = Math.abs( circulo.material.color.g - 0.42 );
+        diffB = Math.abs( circulo.material.color.b - 0.5 );
+        
+        if( diffR > 0.01 || diffG > 0.01 || diffB > 0.01 || sphere.material.opacity > 0.0){
+        
+        circulo.colorsNeedUpdate = true;
+
+        if( circulo.material.color.r > 0.20 ){
+            circulo.material.color.r -= 0.005;
+        }
+        
+        if( circulo.material.color.g < 0.42 ){
+            circulo.material.color.g += 0.005;
+        }
+        
+        if( circulo.material.color.b < 0.5 ){
+            circulo.material.color.b += 0.005;
+              
+        }
+        
+        sphere.material.opacity -= 0.01;
+        
+        requestAnimationFrame( animaSolNaciente );
+        }
+        else{
+            scene.remove( sphere );
+            document.body.removeEventListener( 'mouseup', clickSolNaciente, false );
+            lineasSolNaciente();
+        }
+    }
+    
+            
+                    }
+// ---------------------------------------------------------funcion para solNaciente
+// ---------------------------------------------------------funcion para líneas sol naciente
+
+var arrayLineasSolNaciente = new THREE.Object3D();
+scene.add( arrayLineasSolNaciente );
+    
+    function lineasSolNaciente(){
+        var radio = 1;
+        var angulosUsados = [];
+        var boolAgregaLinea;
+        var contadorLineas = 0;
+
+    document.body.addEventListener( 'mousemove', moveSolNaciente, false );
+        
+        function moveSolNaciente(){
+            var vecMouse = new THREE.Vector3( mouseX, 0, mouseY );
+            var vecOrigen = new THREE.Vector3( 0, 0, -0.03 );
+            var dx = vecMouse.x - vecOrigen.x;
+            var dy = vecMouse.y - vecOrigen.y;
+            var dz = vecMouse.z - vecOrigen.z;
+            var distTotal = Math.sqrt(dx*dx+dy*dy+dz*dz);
+            if( distTotal > 0.07 ){
+
+            var anguloMouse = ( Math.floor( Math.atan2( mouseX , mouseY  ) * 10 ) / 10 ) * -1;
+            var angulo = ( Math.round( ( ( anguloMouse + ( Math.PI / 2 ) ) * 0.98 ) * 10 ) / 10 );
+            
+            boolAgregaLinea = true;
+            
+            for( var i = 0; i < angulosUsados.length; i++){
+                if( angulosUsados[i] == angulo ){
+                    boolAgregaLinea = false;
+                }
+            }
+            
+            
+            if(boolAgregaLinea){
+                angulosUsados.push(angulo);
+                //if( angulo > 3.1 || angulo < 0.0 ){
+                    //if( angulo != -1.5 ){
+                        dibujaLinea( angulo );
+                    //}
+                //}
+            }
+            }
+        }
+        
+        function dibujaLinea( angulo ){
+            var largo = 0;
+             var material = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 1.0 });
+            var geometry = new THREE.Geometry();
+            geometry.vertices.push(new THREE.Vector3( Math.cos(angulo) * radio, 0, Math.sin(angulo) * radio ),new THREE.Vector3( Math.cos(angulo) * (radio + largo), 0, Math.sin(angulo) * (radio + largo) ));
+            var line = new THREE.Line( geometry, material );
+            arrayLineasSolNaciente.add( line );
+            function animaLinea(){
+                
+                if(largo < 11 ){
+                    largo += 0.2;
+                line.geometry.vertices[1].x = Math.cos(angulo) * (radio + largo);
+                line.geometry.vertices[1].z = Math.sin(angulo) * (radio + largo);
+                line.geometry.verticesNeedUpdate = true;
+                requestAnimationFrame( animaLinea );
+                }
+                else{
+                    contadorLineas++;
+                    if( contadorLineas == 62 ){
+                        document.body.removeEventListener( 'mousemove', moveSolNaciente, false ); 
+                        terminaSolNaciente();
+                    }
+                   // console.log(contadorLineas);
+                }
+            }
+            animaLinea();
+        }
+    }
+// ---------------------------------------------------------funcion para líneas sol naciente
+// --------------------------------------------------------- termina sol naciente
+    var boolRegresaCamara = true;
+    
+    function terminaSolNaciente(){
+        
+        function animaTerminaSN(){
+         if( arrayLineasSolNaciente.scale.x > 0 ){
+         arrayLineasSolNaciente.scale.x -= 0.01;
+         arrayLineasSolNaciente.scale.z -= 0.01;
+             for( var i = 0; i < arrayLineasSolNaciente.children.length; i++ ){
+                 if( arrayLineasSolNaciente.scale.x < 0.5){
+                 arrayLineasSolNaciente.children[i].material.opacity -= 0.02;
+                 }
+             }
+        }
+            else{
+                if( circuloSolNaciente.scale.x > 0 ){
+                circuloSolNaciente.scale.x -= 5;
+                circuloSolNaciente.scale.y -= 5;
+                //circuloSolNaciente.scale.z -= 0.5;   
+                }
+                else{
+                if( boolRegresaCamara ){
+                scene.remove( circuloSolNaciente );
+                camera.lookAt( 0, 0, -1000000 );
+                mueveCamara(0, 0, 5, 0, 0, -1000000, 0.1);
+                mueveLuz(luzFrontal, 0, 0, 150, 0.1);
+                mueveLuz(luzSuperior, 0, 150, -15, 0.1);
+                empiezanAsteroides();
+                boolRegresaCamara = false;
+                }
+                }
+            }
+        
+        if( circuloSolNaciente.material.color.r > 0.4 ){
+            circuloSolNaciente.material.color.r -= 0.001;
+        }
+        if( circuloSolNaciente.material.color.r < 0.3 ){
+            circuloSolNaciente.material.color.r += 0.001;
+        }
+        if( circuloSolNaciente.material.color.g > 0.4 ){
+            circuloSolNaciente.material.color.g -= 0.001;
+        }
+        if( circuloSolNaciente.material.color.g > 0.3 ){
+            circuloSolNaciente.material.color.g -= 0.001;
+        }
+        if( circuloSolNaciente.material.color.b > 0.4 ){
+            circuloSolNaciente.material.color.b -= 0.001;
+        }
+        if( circuloSolNaciente.material.color.b > 0.3 ){
+            circuloSolNaciente.material.color.b -= 0.001;
+        } 
+            //circuloSolNaciente.material.opacity = 0.01;
+            
+        if( boolRegresaCamara ){
+         requestAnimationFrame( animaTerminaSN );   
+        }
+        }
+        animaTerminaSN();
+    }
+    
+// --------------------------------------------------------- termina sol naciente
+// ----------------------------------------------------------empiezan asteroides
+    var asteroideSelect = 0;
+    var limitaOnceAnimaAnilloSelector = true;
+    var enPosicion = 0;
+    var contadorConexiones = 0;
+    var idAsteroidesIniciales;
+    var idConexionesEntreAsteroides;
+    
+    function empiezanAsteroides(){
+        
+        var conexionesEntreAsteroides = new THREE.Object3D();
+        scene.add( conexionesEntreAsteroides );
+        idConexionesEntreAsteroides = conexionesEntreAsteroides.id;
+        
+        document.body.addEventListener( 'mousemove', raycastAsteroides, true );
+        document.body.addEventListener( 'mousedown', disparaLineas, true );
+        asteroidesPrevActivados = [];
+        
+        document.body.addEventListener( 'mouseup', normalizaAsteroidesEnMouseup, false );
+        var asteroidesIniciales = new THREE.Object3D();
+        scene.add( asteroidesIniciales );
+        idAsteroidesIniciales = asteroidesIniciales.id;
+        
+        var alturasFinales = [];
+        var girosIX = [];
+        var girosIY = [];
+        var girosIZ = [];
+        
+        var targetsYlistos = 0;
+        
+        var material = new THREE.LineBasicMaterial({ color:0x000000, opacity:0.5, transparent:true });
+        var ellipse1 = new THREE.EllipseCurve(0, 0, 1, 1, 0, 2.0 * Math.PI, false);
+        var ellipsePath1 = new THREE.CurvePath();
+        ellipsePath1.add( ellipse1 );
+        var ellipseGeometry1 = ellipsePath1.createPointsGeometry(22);
+        ellipseGeometry1.computeTangents();
+        var line = new THREE.Line(ellipseGeometry1, material);
+        scene.add( line ); 
+        
+        var ellipse2 = new THREE.EllipseCurve(2.5, 0, 0.5, 0.5, 0, 2.0 * Math.PI, false);
+        var ellipsePath2 = new THREE.CurvePath();
+        ellipsePath2.add( ellipse2 );
+        var ellipseGeometry2 = ellipsePath2.createPointsGeometry(22);
+        ellipseGeometry2.computeTangents();
+        var circuloSecundario = new THREE.Line(ellipseGeometry2, material);
+        line.add( circuloSecundario );
+        
+        var geometry = new THREE.Geometry();
+        geometry.vertices.push(new THREE.Vector3( 1, 0, 0));
+        geometry.vertices.push(new THREE.Vector3( 2, 0, 0));
+        var lineConector = new THREE.Line(geometry, material);
+        line.add( lineConector );
+        
+        var material = new THREE.MeshLambertMaterial( { color: 0xFF0000, shading: THREE.FlatShading, transparent: true, opacity: 0.9 } );
+        var geometry = new THREE.BoxGeometry( 0.35, 0.35, 0.35 );
+        var cubeSelec = new THREE.Mesh( geometry, material );
+        line.add( cubeSelec );
+        cubeSelec.position.x = 2.5;
+        
+        
+        line.position.z = 6;
+        var elipseSelector = line;
+        
+        for( var i = 0; i < 50; i++ ){
+                var geometry = new THREE.OctahedronGeometry(Math.random(), 1);
+                var material = new THREE.MeshLambertMaterial( { color: 0x666666, shading: THREE.FlatShading } );
+                var mesh = new THREE.Mesh( geometry, material );
+                asteroidesIniciales.add(mesh);
+                var inicialX = Math.random() * 10;
+                inicialX *= Math.floor(Math.random()*2) == 1 ? 1 : -1;
+                var inicialY = -16 - ( Math.random() * 10 );
+                var inicialZ = camera.position.z - 0 - Math.random() * 30;
+                var alturaRandom = (Math.random() * 10) * (Math.floor(Math.random() * 2) == 1 ? 1 : -1);
+            
+                alturasFinales.push( alturaRandom );
+            
+                girosIX.push( Math.random()*0.01 );
+                girosIY.push( Math.random()*0.01 );
+                girosIZ.push( Math.random()*0.01 );
+                mesh.position.x = inicialX;
+                mesh.position.y = inicialY;
+                mesh.position.z = inicialZ;
+                mesh.rotation.x = Math.random();
+                mesh.rotation.y = Math.random();
+                mesh.rotation.z = Math.random();
+        }
+        
+        function animaAsteroidesIniciales(){
+            
+            enPosicion = 0;
+            
+            for( var i = 0; i < asteroidesIniciales.children.length; i++){
+                    asteroidesIniciales.children[ i ].rotation.x += girosIX[ i ];
+                    asteroidesIniciales.children[ i ].rotation.y += girosIY[ i ];
+                    asteroidesIniciales.children[ i ].rotation.z += girosIZ[ i ];
+                
+                    
+                if( asteroidesIniciales.children[ i ].position.y < alturasFinales[ i ]){
+                    asteroidesIniciales.children[ i ].position.y += 0.06;
+                }
+                else{
+                    enPosicion++;
+                }
+            }
+            
+            
+            cubeSelec.rotation.x += 0.03;
+            cubeSelec.rotation.z += 0.02;
+            line.rotation.z += 0.03;
+            
+            if( asteroideSelect != 0 ){
+                elipseSelector.scale.x = asteroideSelect.geometry.parameters.radius * 1.5;
+                elipseSelector.scale.y = asteroideSelect.geometry.parameters.radius * 1.5;
+                //console.log( asteroideSelect.geometry.parameters.radius );
+                elipseSelector.position.x = asteroideSelect.position.x;
+                elipseSelector.position.y = asteroideSelect.position.y;
+                elipseSelector.position.z = asteroideSelect.position.z;
+                
+                if( limitaOnceAnimaAnilloSelector ){
+                apareceAnilloSelector( elipseSelector );
+                limitaOnceAnimaAnilloSelector = false;
+                }
+                
+            }
+            
+            requestAnimationFrame( animaAsteroidesIniciales );
+        } // animaAsteroidesIniciales
+        animaAsteroidesIniciales();
+        
+        function raycastAsteroides( event ){
+            
+            mouseX = ( event.clientX / window.innerWidth ) * 2 - 1;
+            mouseY = -( event.clientY / window.innerHeight ) * 2 + 1;
+            var vector = new THREE.Vector3( mouseX, mouseY, camera.near );
+            vector.unproject( camera );
+            var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+            
+
+                var intersects = raycaster.intersectObjects( asteroidesIniciales.children, true );
+                    
+                    if( intersects.length > 0 ){
+                        
+                        for( var i = 0; i < asteroidesIniciales.children.length; i++ ){
+                            asteroidesIniciales.children[ i ].material.color.r = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.g = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.b = 0.4;
+                        }
+                        
+                        //elipseSelector.position.z = 6;
+                        
+                        var arrayZintersects = [];
+                    
+                        for( var i = 0; i < intersects.length; i++ ){
+                            arrayZintersects.push( intersects[ i ].object.position.z );
+                        }
+                        
+                        var intersectMasCercano = Math.max.apply( Math, arrayZintersects );
+                        
+                        for( var i = 0; i < intersects.length; i++ ){
+                            if( intersects[ i ].object.position.z == intersectMasCercano ){
+                                
+                                intersects[ i ].object.material.color.r = 0.65;
+                                intersects[ i ].object.material.color.g = 0.65;
+                                intersects[ i ].object.material.color.b = 0.65;
+                                asteroideSelect = intersects[ i ].object;
+                            }//if intersects[ i ].object.position.z == intersectMasCercano
+                        }
+                    }// if intersects.length > 1
+                    else{
+                        for( var i = 0; i < asteroidesIniciales.children.length; i++ ){
+                            asteroidesIniciales.children[ i ].material.color.r = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.g = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.b = 0.4;
+                        }
+                        limitaOnceAnimaAnilloSelector = true;
+                        asteroideSelect = 0;
+                        elipseSelector.position.z = 6;
+                        elipseSelector.material.opacity = 0.5;
+                    }//else
+        }//raycast Asteroides
+        
+        function apareceAnilloSelector( anillo ){
+            //var contador = anillo.geometry.vertices.length;
+            var contador = 0;
+            
+            function animaAnilloSelector(){
+                if( anillo.material.opacity < 1.0 ){
+                    anillo.material.opacity += 0.01;
+                    anillo.geometry.colorsNeedUpdate = true;
+                    requestAnimationFrame( animaAnilloSelector );
+                }
+            }
+            animaAnilloSelector();
+        }// apareceAnilloSelector
+        
+        function disparaLineas( event ){
+            if( enPosicion == 50 && contadorConexiones < 5 ){
+            contadorConexiones ++;
+            mouseX = ( event.clientX / window.innerWidth ) * 2 - 1;
+            mouseY = -( event.clientY / window.innerHeight ) * 2 + 1;
+            var vector = new THREE.Vector3( mouseX, mouseY, camera.near );
+            vector.unproject( camera );
+            var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+            
+
+                var intersects = raycaster.intersectObjects( asteroidesIniciales.children, true );
+                    
+                    if( intersects.length > 0 ){
+                        
+                        var arrayZintersects = [];
+                    
+                        for( var i = 0; i < intersects.length; i++ ){
+                            arrayZintersects.push( intersects[ i ].object.position.z );
+                        }
+                        
+                        var intersectMasCercano = Math.max.apply( Math, arrayZintersects );
+                        
+                        for( var i = 0; i < intersects.length; i++ ){
+                            
+                            if( intersects[ i ].object.position.z == intersectMasCercano ){
+                                
+                                if( asteroidesPrevActivados.indexOf( intersects[ i ].object.id ) == -1 ){
+                                    
+                                asteroidesPrevActivados.push( intersects[ i ].object.id );
+                                var contadorRayos = 0;
+                                var valorJ = Math.floor( Math.random() * ( asteroidesIniciales.children.length - 3 ) ); 
+                                    
+                                for( var j = valorJ; j < asteroidesIniciales.children.length; j++ ){
+                                    
+                                    if( contadorRayos < 3 ){
+                                    dibujaConexion( intersects[ i ].object.position, asteroidesIniciales.children[ j ].position );
+                                    contadorRayos++;
+                                    }//if contador < 3
+                                    
+                                }// for asteroidesiniciales.children.length
+                                    
+                                } // asteroidesPrevActivados.indexOf
+                                
+                            }//if intersects[ i ].object.position.z == intersectMasCercano
+                        }
+                    }// if intersects.length > 1
+                    else{
+                        for( var i = 0; i < asteroidesIniciales.children.length; i++ ){
+                            asteroidesIniciales.children[ i ].material.color.r = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.g = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.b = 0.4;
+                        }
+                    }//else
+            }//if enPosicion == 50
+            if( contadorConexiones == 5 ){
+                document.body.removeEventListener( 'mousemove', raycastAsteroides, true );
+                document.body.removeEventListener( 'mousedown', disparaLineas, true );
+                document.body.removeEventListener( 'mouseup', normalizaAsteroidesEnMouseup, false );
+                scene.remove( line );
+                hacerAsteroides();
+            }
+        }//disparaLineas
+        
+        function normalizaAsteroidesEnMouseup( event ){
+            for( var i = 0; i < asteroidesIniciales.children.length; i++ ){
+                            asteroidesIniciales.children[ i ].material.color.r = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.g = 0.4;
+                            asteroidesIniciales.children[ i ].material.color.b = 0.4;
+            }
+        }
+        
+        
+        
+        function dibujaConexion( puntoInicial, puntoFinal ){
+            
+            var material = new THREE.LineBasicMaterial({ color:0x000000 });
+            var geometry = new THREE.Geometry();
+            
+            geometry.vertices.push( puntoInicial );
+            geometry.vertices.push( puntoInicial );
+            
+            var lineaEntreAsteroides = new THREE.Line(geometry, material);
+            lineaEntreAsteroides.frustumCulled = false;
+            conexionesEntreAsteroides.add( lineaEntreAsteroides );
+            var incremento = 0;
+            
+            function animaConexion(){
+                if( incremento <= 100 ){
+                lineaEntreAsteroides.geometry.vertices[ 1 ] = puntoIntermedio( puntoInicial, puntoFinal, incremento / 100 );
+                lineaEntreAsteroides.geometry.verticesNeedUpdate = true;
+                //console.log( lineaEntreAsteroides.geometry.vertices[ 1 ].position );
+                incremento += 3;
+                requestAnimationFrame( animaConexion );
+                }
+            }
+            
+            animaConexion();
+        }
+        
+        
+    }//empiezanAsteroides
+    
+// ----------------------------------------------------------empiezan asteroides
+//-------------------------------------------------- hacer asteroides
+
+var asteroideSelect = 0;
+var limitaOnceAnimaAnilloSelector = true;
+    
+function hacerAsteroides(){
+    
+        document.body.addEventListener( 'mousemove', raycastAsteroides, true );
+    
+        var material = new THREE.LineBasicMaterial({ color:0x000000, opacity:1.0, transparent:true });
+        var ellipse1 = new THREE.EllipseCurve(0, 0, 1, 1, 0, 2.0 * Math.PI, false);
+        var ellipsePath1 = new THREE.CurvePath();
+        ellipsePath1.add( ellipse1 );
+        var ellipseGeometry1 = ellipsePath1.createPointsGeometry(22);
+        ellipseGeometry1.computeTangents();
+        var line = new THREE.Line(ellipseGeometry1, material);
+        scene.add( line ); 
+        
+        var ellipse2 = new THREE.EllipseCurve(2.5, 0, 0.5, 0.5, 0, 2.0 * Math.PI, false);
+        var ellipsePath2 = new THREE.CurvePath();
+        ellipsePath2.add( ellipse2 );
+        var ellipseGeometry2 = ellipsePath2.createPointsGeometry(22);
+        ellipseGeometry2.computeTangents();
+        var circuloSecundario = new THREE.Line(ellipseGeometry2, material);
+        line.add( circuloSecundario );
+        
+        var geometry = new THREE.Geometry();
+        geometry.vertices.push(new THREE.Vector3( 1, 0, 0));
+        geometry.vertices.push(new THREE.Vector3( 2, 0, 0));
+        var lineConector = new THREE.Line(geometry, material);
+        line.add( lineConector );
+        
+        var material = new THREE.MeshLambertMaterial( { color: 0xFF0000, shading: THREE.FlatShading, transparent: true, opacity: 1.0 } );
+        var geometry = new THREE.BoxGeometry( 0.35, 0.35, 0.35 );
+        var cubeSelec = new THREE.Mesh( geometry, material );
+        line.add( cubeSelec );
+        cubeSelec.position.x = 2.5;
+        
+        line.position.z = 6;
+        var elipseSelector = line;
+    
+    var asteroides = new THREE.Object3D();
+    scene.add( asteroides );
+    var floorCamActual;
+    function animaAsteroides(){
+        
+        var floorCamX = Math.floor( camera.position.z );
+        if( floorCamX % 30 == 0 && floorCamX != floorCamActual){
+            
+            if( floorCamX == -30 ){//elimina conexiones y asteroides iniciales
+                var asteroidesIniciales = scene.getObjectById( idAsteroidesIniciales, true );
+                var conexionesEntreAsteroides = scene.getObjectById( idConexionesEntreAsteroides, true );
+                scene.remove( asteroidesIniciales );
+                scene.remove( conexionesEntreAsteroides );
+            }
+            
+            floorCamActual = floorCamX;
+            for( var i = 0; i < 60; i++){
+                var geometry = new THREE.OctahedronGeometry(Math.random(), 1);
+                var material = new THREE.MeshLambertMaterial( { color: 0x666666, shading: THREE.FlatShading } );
+                var mesh = new THREE.Mesh( geometry, material );
+                asteroides.add(mesh);
+                var randomX = Math.random() * 10;
+                randomX *= Math.floor(Math.random()*2) == 1 ? 1 : -1;
+                var randomY = Math.random() * 10;
+                randomY *= Math.floor(Math.random()*2) == 1 ? 1 : -1;
+                var randomZ = camera.position.z - 30 - Math.random() * 30;
+
+                mesh.position.x = randomX;
+                mesh.position.y = randomY;
+                mesh.position.z = randomZ;
+                mesh.rotation.x = Math.random();
+                mesh.rotation.y = Math.random();
+                mesh.rotation.z = Math.random();
+            }
+            for( var i = 0; i < asteroides.children.length; i++ ){
+                if( asteroides.children[ i ].position.z > camera.position.z + 1 ){
+                    asteroides.remove( asteroides.children[ i ] );
+                }
+            }
+         }
+    camera.position.z -= 0.05;
+    //camera.lookAt( new THREE.Vector3( 0, 0, camera.position.z - 5 ) );
+    
+    cubeSelec.rotation.x += 0.03;
+    cubeSelec.rotation.z += 0.02;
+    line.rotation.z += 0.03;
+        
+            if( asteroideSelect != 0 ){
+                elipseSelector.scale.x = asteroideSelect.geometry.parameters.radius * 1.5;
+                elipseSelector.scale.y = asteroideSelect.geometry.parameters.radius * 1.5;
+                //console.log( asteroideSelect.geometry.parameters.radius );
+                elipseSelector.position.x = asteroideSelect.position.x;
+                elipseSelector.position.y = asteroideSelect.position.y;
+                elipseSelector.position.z = asteroideSelect.position.z;
+            }
+    
+    requestAnimationFrame( animaAsteroides );
+    }
+    animaAsteroides();
+    
+    var raycaster = new THREE.Raycaster();
+    var mouse = new THREE.Vector2();
+    
+    function raycastAsteroides( event ){
+            mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+            mouse.y = -( event.clientY / window.innerHeight ) * 2 + 1;
+            //var vector = new THREE.Vector3( mouse.x, mouse.y, camera.near );
+            //vector.unproject( camera );
+            //raycaster.set(camera.position, vector.sub(camera.position).normalize());
+            raycaster.setFromCamera( mouse, camera );
+            //var raycaster = new THREE.Raycaster( camera.position, vector.sub( camera.position ).normalize() );
+            
+
+                var intersects = raycaster.intersectObjects( asteroides.children, false );
+                    if( intersects.length > 0 ){
+                        
+                        for( var i = 0; i < asteroides.children.length; i++ ){
+                            asteroides.children[ i ].material.color.r = 0.4;
+                            asteroides.children[ i ].material.color.g = 0.4;
+                            asteroides.children[ i ].material.color.b = 0.4;
+                        }
+                        
+                        //elipseSelector.position.z = 6;
+                        
+                        var arrayZintersects = [];
+                    
+                        for( var i = 0; i < intersects.length; i++ ){
+                            arrayZintersects.push( intersects[ i ].object.position.z );
+                        }
+                        
+                        var intersectMasCercano = Math.max.apply( Math, arrayZintersects );
+                        
+                        for( var i = 0; i < intersects.length; i++ ){
+                            if( intersects[ i ].object.position.z == intersectMasCercano ){
+                                
+                                intersects[ i ].object.material.color.r = 0.65;
+                                intersects[ i ].object.material.color.g = 0.65;
+                                intersects[ i ].object.material.color.b = 0.65;
+                                asteroideSelect = intersects[ i ].object;
+                            }//if intersects[ i ].object.position.z == intersectMasCercano
+                        }
+                    }// if intersects.length > 1
+                    else{
+                        for( var i = 0; i < asteroides.children.length; i++ ){
+                            asteroides.children[ i ].material.color.r = 0.4;
+                            asteroides.children[ i ].material.color.g = 0.4;
+                            asteroides.children[ i ].material.color.b = 0.4;
+                        }
+                        //limitaOnceAnimaAnilloSelector = true;
+                        asteroideSelect = 0;
+                        elipseSelector.position.z = 6;
+                    }//else
+        }//raycast Asteroides
+}// asteroides
+
+    
+//-------------------------------------------------- hacer asteroides
+// ---------------------------------------------------------función para animar cámara   
+    function mueveCamara(targetX, targetY, targetZ, lookX, lookY, lookZ, time, callback){
+        
+        camera.lookAt( new THREE.Vector3( lookX, lookY, lookZ ) );
+        
+        var currX = Math.round(camera.position.x * 10000) / 10000;
+        var currY = Math.round(camera.position.y * 10000) / 10000;
+        var currZ = Math.round(camera.position.z * 10000) / 10000;
+        
+        targetX = Math.round(targetX * 10000) / 10000;
+        targetY = Math.round(targetY * 10000) / 10000;
+        targetZ = Math.round(targetZ * 10000) / 10000;
+        
+        var tiempo = Math.round((time * 60) * 10000) / 10000;
+        
+        var distanciaTotal = Math.round((Math.abs(currX - targetX) + Math.abs(currY - targetY) + Math.abs(currZ - targetZ)) * 10000) / 10000;
+        
+        var velocidad = Math.round((distanciaTotal / tiempo) * 10000)/10000;
+        
+        function animaCamara(){
+            
+            var diffX = Math.abs(currX - targetX);
+            var diffY = Math.abs(currY - targetY);
+            var diffZ = Math.abs(currZ - targetZ);
+            
+            
+        //if(currX != targetX || currY != targetY || currZ != targetZ){
+        if( diffX > 0.1 || diffY > 0.1 || diffZ > 0.1 ){
+            
+            currX = Math.round(currX * 10000) / 10000;
+            currY = Math.round(currY * 10000) / 10000;
+            currZ = Math.round(currZ * 10000) / 10000;
+            
+             var diferencia = (Math.round((Math.abs(currX - targetX) + Math.abs(currY - targetY) + Math.abs(currZ - targetZ)) * 10000) / 10000)/1.8;
+            
+            if(currX < targetX){
+                camera.position.x += (velocidad /** diferencia*/);
+                currX += (velocidad /** diferencia*/); 
+            }
+            if(currX > targetX){
+                camera.position.x -= (velocidad /** diferencia*/);
+                currX -= (velocidad /** diferencia*/);
+            }
+            
+            if(currY < targetY){
+                camera.position.y += (velocidad /** diferencia*/);
+                currY += (velocidad /** diferencia*/);    
+            }
+            if(currY > targetY){
+                camera.position.y -= (velocidad /** diferencia*/);
+                currY -= (velocidad /** diferencia*/);
+            }
+            
+            if(currZ < targetZ){
+                camera.position.z += (velocidad /** diferencia*/);
+                currZ += (velocidad /** diferencia*/);   
+            }
+            if(currZ > targetZ){
+                camera.position.z -= (velocidad /** diferencia*/);
+                currZ -= (velocidad /** diferencia*/);
+            }
+            camera.lookAt( new THREE.Vector3( lookX, lookY, lookZ ) );
+            //console.log(currZ + ", " + targetZ + ", " + diffZ);
+            //console.log(diferencia);
+            requestAnimationFrame( animaCamara );
+            
+        }//if inicial
+            else{
+                callback;
+            }
+        }//animaCamara
+        animaCamara();
+    }//mueveCamara
+// ---------------------------------------------------------función para animar cámara 
+// ---------------------------------------------------------función para animar luz  
+    function mueveLuz(luzAnimada, targetX, targetY, targetZ, time){
+        
+        var currX = Math.round(luzAnimada.position.x * 10000) / 10000;
+        var currY = Math.round(luzAnimada.position.y * 10000) / 10000;
+        var currZ = Math.round(luzAnimada.position.z * 10000) / 10000;
+        
+        targetX = Math.round(targetX * 10000) / 10000;
+        targetY = Math.round(targetY * 10000) / 10000;
+        targetZ = Math.round(targetZ * 10000) / 10000;
+        
+        var tiempo = Math.round((time * 60) * 10000) / 10000;
+        
+        var distanciaTotal = Math.round((Math.abs(currX - targetX) + Math.abs(currY - targetY) + Math.abs(currZ - targetZ)) * 10000) / 10000;
+        
+        var velocidad = Math.round((distanciaTotal / tiempo) * 10000)/10000;
+        
+        function animaLuz(){
+            
+            var diffX = Math.abs(currX - targetX);
+            var diffY = Math.abs(currY - targetY);
+            var diffZ = Math.abs(currZ - targetZ);
+            
+            var diferencia = (Math.round((Math.abs(currX - targetX) + Math.abs(currY - targetY) + Math.abs(currZ - targetZ)) * 10000) / 10000)/1.8;
+            
+        //if(currX != targetX || currY != targetY || currZ != targetZ){
+        if( diffX > 0.1 || diffY > 0.1 || diffZ > 0.1 ){
+            
+            currX = Math.round(currX * 10000) / 10000;
+            currY = Math.round(currY * 10000) / 10000;
+            currZ = Math.round(currZ * 10000) / 10000;
+            
+            if(currX < targetX){
+                luzAnimada.position.x += (velocidad /** diferencia*/);
+                currX += (velocidad /** diferencia*/); 
+            }
+            if(currX > targetX){
+                luzAnimada.position.x -= (velocidad /** diferencia*/);
+                currX -= (velocidad /** diferencia*/);
+            }
+            
+            if(currY < targetY){
+                luzAnimada.position.y += (velocidad /** diferencia*/);
+                currY += (velocidad /** diferencia*/);    
+            }
+            if(currY > targetY){
+                luzAnimada.position.y -= (velocidad /** diferencia*/);
+                currY -= (velocidad /** diferencia*/);
+            }
+            
+            if(currZ < targetZ){
+                luzAnimada.position.z += (velocidad /** diferencia*/);
+                currZ += (velocidad /** diferencia*/);   
+            }
+            if(currZ > targetZ){
+                luzAnimada.position.z -= (velocidad /** diferencia*/);
+                currZ -= (velocidad /** diferencia*/);
+            }
+            //console.log(currZ + ", " + targetZ + ", " + diffZ);
+            //console.log(velocidad);
+            requestAnimationFrame( animaLuz );
+            }//if inicial
+        }//animaLuz
+        animaLuz();
+    }//mueveLuz
+// ---------------------------------------------------------función para animar luz
+// ---------------------------------------------------------rotacion de objeto en eje arbitrario (world space)
+var rotWorldMatrix;     
+function rotateAroundWorldAxis(object, axis, radians) {
+    rotWorldMatrix = new THREE.Matrix4();
+    rotWorldMatrix.makeRotationAxis(axis.normalize(), radians);
+
+    rotWorldMatrix.multiply(object.matrix);                // pre-multiply
+
+    object.matrix = rotWorldMatrix;
+
+    object.rotation.setFromRotationMatrix(object.matrix);
+}
+// ---------------------------------------------------------rotacion de objeto en eje arbitrario (world space)
+// --------------------------------------------------------- Distancia entre dos puntos
+    function distancia( v1, v2 ) {
+        var dx = v1.x - v2.x;
+        var dy = v1.y - v2.y;
+        var dz = v1.z - v2.z;
+
+        return Math.sqrt(dx*dx+dy*dy+dz*dz);
+    }
+// --------------------------------------------------------- Distancia entre dos puntos
+// --------------------------------------------------------- Punto intermedio
+    function puntoIntermedio(pointA, pointB, percentage) {
+
+        var dir = pointB.clone().sub(pointA);
+        var len = dir.length();
+        dir = dir.normalize().multiplyScalar(len*percentage);
+        return pointA.clone().add(dir);
+
+    }
+// --------------------------------------------------------- Punto intermedio
+</script>
+</body>
+</html>
